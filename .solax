@@ -1,0 +1,197 @@
+const apiUrl = "https://www.solaxcloud.com/proxyApp/proxy/api/getRealtimeInfo.do?tokenId=???&sn=???"
+
+let widget = await createWidget()
+widget.backgroundColor = new Color("#000000")
+widget.refreshAfterDate = new Date(Date.now() + 6000);
+if (!config.runsInWidget) await widget.presentSmall()
+
+Script.setWidget(widget)
+Script.complete()
+
+async function createWidget(items) {
+  let fm = FileManager.local()
+  let dir = fm.documentsDirectory()
+  let path = fm.joinPath(dir, "scriptable-solax.json")
+  let pathBT = fm.joinPath(dir, "scriptable-solaxBT.json")
+  let pathBPV = fm.joinPath(dir, "scriptable-solaxBPV.json")
+    
+  const list = new ListWidget()
+  
+  try {
+    // Get data from Api
+    let r = new Request(apiUrl)
+    let data
+    try {
+      // Fetch data from source
+      data = await r.loadJSON()
+      // Write JSON to iCloud file
+      fm.writeString(path, JSON.stringify(data, null, 2))
+    } catch (err) {
+      // Read data from iCloud file
+      data = JSON.parse(fm.readString(path), null)  
+      }
+      
+    let BatStat
+    let BatStatSym
+    let Last
+    let AktTag = data.result.yieldtoday
+    let AC_Inv = data.result.acpower
+    let AC_Grid = data.result.feedinpower
+    let BatPower = data.result.batPower
+    let InvStat = data.result.inverterStatus
+    let SOC = data.result.soc
+    let pv1 = data.result.powerdc1
+    let pv2 = data.result.powerdc2
+    // Calc of total PV power
+    let pvt = parseFloat(pv1) + parseFloat(pv2)
+    let FontX = Font.boldSystemFont(12)
+
+    // Maximum kwh of the best day
+    let dataBT
+    let BestTag
+    try {
+      // Read data from iCloud file
+      dataBT = JSON.parse(fm.readString(pathBT), null)
+    } catch (err) {}
+    BestTag=dataBT.dataBTX
+    // If new record write string in file
+    if (parseFloat(AktTag)<BestTag) {
+      BestTag=BestTag
+    }
+    else {(BestTag=AktTag)
+      try {
+        // Fetch data from source
+        dataBT = {"dataBTX": parseFloat(BestTag)}
+        // Write JSON to iCloud file
+        fm.writeString(pathBT, JSON.stringify(dataBT, null, 2))
+      } catch (err) {  
+        }
+    }
+      
+    // Maximum Watt peak ever reached
+    let dataBPV
+    let BestPV
+    try {
+      // Read data from iCloud file
+      dataBPV = JSON.parse(fm.readString(pathBPV), null)
+    } catch (err) {}
+    BestPV=dataBPV.dataBPVX
+    // If new record write string in file
+    if (parseFloat(pvt)<BestPV) {
+      BestPV=BestPV
+    }
+    else {(BestPV=pvt)
+      try {
+        // Fetch data from source
+        dataBPV = {"dataBPVX": parseFloat(BestPV)}
+        // Write JSON to iCloud file
+        fm.writeString(pathBPV, JSON.stringify(dataBPV, null, 2))
+      } catch (err) {
+        }
+    }
+        
+    // Calc Consumption
+    if (AC_Grid > 0) {
+      Last = Math.abs(AC_Inv - AC_Grid)
+    } else Last = AC_Inv
+    
+    // Battery Icon & Status
+    if (SOC <= 59) {
+      BatStatSym = "🪫 "
+    } else BatStatSym = "🔋 "
+  
+    if (parseFloat(BatPower) > 0) {
+      BatStat = "↑ "
+    } else if (parseFloat(BatPower) < 0) {
+      BatStat = "↓ "
+    } else if (parseFloat(BatPower)   == 0) {
+      BatStat = " "
+    }
+
+    const line0 = list.addText(BatStat + BatStatSym + SOC + "%")
+    line0.font = Font.boldSystemFont(20)
+    line0.centerAlignText()
+    if (SOC <= 10) {
+      line0.textColor = Color.red()
+    } else if (SOC <= 50) {
+      line0.textColor = Color.orange()
+    } else line0.textColor = Color.green()
+      
+    // check Fault
+    if (InvStat == 103){
+      const line1 = list.addText("Störung")  
+      line1.textColor = Color.red()
+      line1.centerAlignText()
+      line1.font = Font.boldSystemFont(30) 
+    } else {
+      // Normal mode     
+      
+      // Current power & day   
+      const line2 = list.addText("☀️ "+ pvt + "W / " + AktTag + "kWh")
+      line2.font = FontX
+      line2.textColor = Color.yellow()
+      
+      // Power of strings      
+      const line3 = list.addText("1️⃣"+ pv1 + "W / 2️⃣" + pv2 + "W")
+      line3.font = Font.boldSystemFont(11)
+      line3.textColor = Color.yellow()
+        
+      // Battery power        
+      const line4 = list.addText(BatStatSym + BatPower +"W")
+      line4.font = FontX
+      if (BatPower < 0) {
+        line4.textColor = Color.red()
+      } else if (BatPower > 0) {
+        line4.textColor = Color.green()
+      } else if (BatPower == 0) {
+        line4.textColor = Color.white()
+      }
+      
+      // Grid Power
+      if (parseFloat(AC_Grid) > 0) {
+        const line5 = list.addText("🏭 ← " + Math.abs(AC_Grid) + "W")  
+        line5.font = FontX
+        line5.textColor = Color.green()
+      } else if (parseFloat(AC_Grid) < 0) {
+        const line5 = list.addText("🏭 → " + Math.abs(AC_Grid) + "W")  
+        line5.font = FontX
+        line5.textColor = Color.red()
+      } else if (parseFloat(AC_Grid) == 0) { if (InvStat == 107) {
+        const line5 = list.addText("🏭 EPS  EPS  EPS")
+        line5.font = FontX
+        line5.textColor = Color.red()
+        }
+        else {
+          const line5 = list.addText("🏭 " + Math.abs(AC_Grid) + "W")  
+          line5.font = FontX
+          line5.textColor = Color.white()
+        }
+      }
+
+      // Consumption
+      const line6 = list.addText("💡 "+Last + "W")
+      line6.font = FontX
+      line6.textColor = Color.purple()
+
+      // Maximum kwh of the best day
+      const line7 = list.addText("max. Ertrag: " + dataBT.dataBTX + "kWh")
+      line7.font = FontX
+      line7.textColor = Color.yellow()
+  
+      // Maximum PV power
+      const line8 = list.addText("max. PV: " + dataBPV.dataBPVX + "W")
+      line8.font = FontX
+      line8.textColor = Color.yellow()
+      
+      // Upload Time  
+      const line9 = list.addText(data.result.uploadTime)
+      line9.font = Font.mediumSystemFont(11)
+      line9.centerAlignText()
+      line9.textColor = Color.gray()
+    
+    } // End normal mode
+  } catch(err) {
+    list.addText("Programmfehler")}
+  
+  return list
+}
